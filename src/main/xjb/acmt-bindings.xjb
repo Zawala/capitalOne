@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jaxb:bindings
+  xmlns:jaxb="https://jakarta.ee/xml/ns/jaxb"
+  xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  version="3.0">
+
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.001.001.08.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt001_001_08"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.002.001.08.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt002_001_08"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.003.001.08.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt003_001_08"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.005.001.06.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt005_001_06"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.006.001.07.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt006_001_07"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.007.001.05.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt007_001_05"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.008.001.05.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt008_001_05"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.009.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt009_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.010.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt010_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.011.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt011_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.012.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt012_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.013.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt013_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.014.001.05.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt014_001_05"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.015.001.05.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt015_001_05"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.016.001.05.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt016_001_05"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.017.001.05.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt017_001_05"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.018.001.05.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt018_001_05"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.019.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt019_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.020.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt020_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.021.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt021_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.022.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt022_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.023.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt023_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.024.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt024_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.027.001.06.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt027_001_06"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.028.001.06.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt028_001_06"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.029.001.06.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt029_001_06"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.030.001.04.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt030_001_04"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.031.001.06.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt031_001_06"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.032.001.06.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt032_001_06"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.033.001.02.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt033_001_02"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.034.001.06.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt034_001_06"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.035.001.02.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt035_001_02"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.036.001.01.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt036_001_01"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/acmt/acmt.037.001.02.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.acmt.acmt037_001_02"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+
+</jaxb:bindings>

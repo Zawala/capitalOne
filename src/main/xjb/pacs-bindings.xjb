@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jaxb:bindings
+  xmlns:jaxb="https://jakarta.ee/xml/ns/jaxb"
+  xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  version="3.0">
+
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/pacs/pacs.002.001.12.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.pacs.pacs002_001_12"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/pacs/pacs.002.001.16.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.pacs.pacs002_001_16"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/pacs/pacs.003.001.12.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.pacs.pacs003_001_12"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/pacs/pacs.004.001.15.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.pacs.pacs004_001_15"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/pacs/pacs.007.001.14.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.pacs.pacs007_001_14"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/pacs/pacs.008.001.14.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.pacs.pacs008_001_14"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/pacs/pacs.009.001.13.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.pacs.pacs009_001_13"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/pacs/pacs.010.001.06.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.pacs.pacs010_001_06"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/pacs/pacs.028.001.07.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.pacs.pacs028_001_07"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+  <jaxb:bindings schemaLocation="../java/capital/one/capital/iso/pacs/pacs.029.001.02.xsd">
+    <jaxb:schemaBindings><jaxb:package name="capital.one.capital.iso.pacs.pacs029_001_02"/></jaxb:schemaBindings>
+  </jaxb:bindings>
+
+</jaxb:bindings>
