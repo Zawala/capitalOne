@@ -110,7 +110,7 @@ public class Acmt023BuilderService {
 
         AvsResponseDTO dto = new AvsResponseDTO();
         dto.setReferenceId(report.getOrgnlId());
-        dto.setVerified(report.getVrfctn());
+        dto.setVerified(report.isVrfctn());
 
         // Reason code (present when verified = false)
         if (report.getRsn() != null) {

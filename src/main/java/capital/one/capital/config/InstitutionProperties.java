@@ -15,6 +15,8 @@ public class InstitutionProperties {
     private String postalCode;
     private String creditorAgentUrl;
     private String avsUrl;
+    private String statusUrl;
+    private String returnUrl;
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
@@ -39,4 +41,10 @@ public class InstitutionProperties {
 
     public String getAvsUrl() { return avsUrl; }
     public void setAvsUrl(String avsUrl) { this.avsUrl = avsUrl; }
+
+    public String getStatusUrl() { return statusUrl; }
+    public void setStatusUrl(String statusUrl) { this.statusUrl = statusUrl; }
+
+    public String getReturnUrl() { return returnUrl; }
+    public void setReturnUrl(String returnUrl) { this.returnUrl = returnUrl; }
 }

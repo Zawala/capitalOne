@@ -153,7 +153,7 @@ mvn generate-sources
 mvn spring-boot:run -P dev
 ```
 
-H2 console is available at `http://localhost:8080/h2-console`
+H2 console is available at `http://localhost:81460/h2-console`
 - JDBC URL: `jdbc:h2:mem:capitaldb`
 - Username: `sa` / Password: *(empty)*
 
@@ -324,3 +324,128 @@ The `Iso20022MarshallingService` caches one `JAXBContext` per package (thread-sa
 | `prod` | PostgreSQL `capital_prod` | `validate` | no | no |
 
 Activate with `-P <profile>` on any Maven command.
+
+---
+
+## Local End-to-End Test
+
+A shell script exercises the full payment flow against the running dev server.
+
+```bash
+chmod +x test-flow.sh
+./test-flow.sh
+```
+
+The dev profile runs a built-in `MockDownstreamController` on the same port so no external institution is needed. All four downstream calls are intercepted locally and return positive responses.
+
+### Sample output
+
+```
+━━━  Checking server at http://localhost:81460  ━━━
+✔  Server is up
+
+━━━  STEP 1 — AVS: Verify beneficiary account  ━━━
+  Checking: 'Jane Smith' against account '0987654321' at BIC 'ABCDZAJJXXX'
+HTTP 200
+{"reasonCode":null,"referenceId":"REF-D93CA5F7A95C4F97","registeredAccount":null,"registeredName":null,"verified":true}
+✔  AVS passed — account holder verified
+
+━━━  STEP 2 — Send: Credit transfer (pacs.008)  ━━━
+  John Doe (1234567890) → Jane Smith (0987654321)
+  Amount: 1500.00 ZAR  |  Ref: Test payment 20260325061230
+HTTP 200
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.002.001.16">
+  <FIToFIPmtStsRpt>
+    <GrpHdr>
+      <MsgId>MOCK-1A65AF7147404418</MsgId>
+      <CreDtTm>2026-03-25T06:12:31.809971031+02:00</CreDtTm>
+    </GrpHdr>
+    <TxInfAndSts>
+      <OrgnlGrpInf>
+        <OrgnlMsgId>MSG-5D75E258EFE448EF</OrgnlMsgId>
+        <OrgnlMsgNmId>pacs.008.001.14</OrgnlMsgNmId>
+      </OrgnlGrpInf>
+      <OrgnlEndToEndId>E2E-4AE4BC46D579455D</OrgnlEndToEndId>
+      <TxSts>ACCC</TxSts>
+    </TxInfAndSts>
+  </FIToFIPmtStsRpt>
+</Document>
+✔  Transfer accepted — msgId: MSG-5D75E258EFE448EF
+
+━━━  STEP 3 — Status: Query payment status (pacs.028)  ━━━
+  Querying status for msgId: MSG-5D75E258EFE448EF
+HTTP 200
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.002.001.16">
+  <FIToFIPmtStsRpt>
+    <GrpHdr>
+      <MsgId>MOCK-AE9366E74DC24C27</MsgId>
+      <CreDtTm>2026-03-25T06:12:32.343214418+02:00</CreDtTm>
+    </GrpHdr>
+    <TxInfAndSts>
+      <OrgnlGrpInf>
+        <OrgnlMsgId>MSG-5D75E258EFE448EF</OrgnlMsgId>
+        <OrgnlMsgNmId>pacs.008.001.14</OrgnlMsgNmId>
+      </OrgnlGrpInf>
+      <OrgnlEndToEndId>N/A</OrgnlEndToEndId>
+      <TxSts>ACCC</TxSts>
+    </TxInfAndSts>
+  </FIToFIPmtStsRpt>
+</Document>
+✔  Status query sent successfully
+
+━━━  STEP 4 — Return: Return payment (pacs.004) — reason: CUST  ━━━
+  Returning msgId: MSG-5D75E258EFE448EF  |  Reason: CUST
+HTTP 200
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.002.001.16">
+  <FIToFIPmtStsRpt>
+    <GrpHdr>
+      <MsgId>MOCK-6446052CE5804BEC</MsgId>
+      <CreDtTm>2026-03-25T06:12:32.469128151+02:00</CreDtTm>
+    </GrpHdr>
+    <TxInfAndSts>
+      <OrgnlGrpInf>
+        <OrgnlMsgId>MSG-5D75E258EFE448EF</OrgnlMsgId>
+        <OrgnlMsgNmId>pacs.008.001.14</OrgnlMsgNmId>
+      </OrgnlGrpInf>
+      <OrgnlEndToEndId>N/A</OrgnlEndToEndId>
+      <TxSts>ACCP</TxSts>
+    </TxInfAndSts>
+  </FIToFIPmtStsRpt>
+</Document>
+✔  Return request sent successfully
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Test flow complete
+  Base URL : http://localhost:81460
+  msgId    : MSG-5D75E258EFE448EF
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### Script options
+
+```bash
+# Run against a different host
+BASE_URL=http://myserver:9090 ./test-flow.sh
+
+# Skip AVS + transfer if you already have a msgId
+MSG_ID=MSG-5D75E258EFE448EF ./test-flow.sh
+
+# Use a specific return reason code
+REASON_CODE=MD06 ./test-flow.sh
+```
+
+### Mock downstream responses (dev only)
+
+In the `dev` profile all outbound ISO 20022 calls are routed to `/mock/*` on the same server:
+
+| Endpoint | Message sent | Mock response |
+|---|---|---|
+| `POST /mock/credit` | pacs.008 | pacs.002 `TxSts=ACCC` |
+| `POST /mock/status` | pacs.028 | pacs.002 `TxSts=ACCC` |
+| `POST /mock/return` | pacs.004 | pacs.002 `TxSts=ACCP` |
+| `POST /mock/avs`    | acmt.023 | acmt.024 `Vrfctn=true` |
+
+The mock controller (`MockDownstreamController`) is excluded from `uat` and `prod` builds via `@Profile("dev")`.

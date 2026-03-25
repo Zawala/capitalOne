@@ -67,6 +67,7 @@ public class PaymentController {
         try {
             built = pacs008Builder.build(request);
             xml   = marshaller.marshalPayment(built.document());
+            log.info("pacs.008 XML:\n{}", xml);
         } catch (JAXBException e) {
             log.error("Failed to build/marshal pacs.008", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

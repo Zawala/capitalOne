@@ -69,6 +69,7 @@ public class AvsController {
         try {
             built = acmt023Builder.build(request);
             xml   = marshaller.marshalAvsRequest(built.document());
+            log.info("acmt.023 XML:\n{}", xml);
         } catch (JAXBException e) {
             log.error("Failed to build/marshal acmt.023", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();

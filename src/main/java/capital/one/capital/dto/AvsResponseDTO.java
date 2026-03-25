@@ -8,7 +8,12 @@ public class AvsResponseDTO {
     /** The reference ID echoed back from the acmt.024 VerificationReport.OrgnlId */
     private String referenceId;
 
-    /** Reason code when verified = false (e.g. NMAT = no match, NMNS = name mismatch) */
+    /**
+     * Reason code when verified = false.
+     * See {@link capital.one.capital.model.AvsReasonCode} for the full list of possible values.
+     * Common codes: PN01 (name mismatch), PN02 (close match), PI01 (ID mismatch),
+     * AC01 (invalid account), AC04 (closed), AC06 (blocked), NORR (no response).
+     */
     private String reasonCode;
 
     /** Account holder name as held by the responding institution (if returned) */
