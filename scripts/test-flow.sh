@@ -3,29 +3,34 @@
 # test-flow.sh — end-to-end smoke test for the Capital ISO 20022 Gateway
 #
 # Flow:
-#   1. AVS  — verify the beneficiary account holder's name
-#   2. Send — credit transfer (pacs.008)
+#   0. Auth  — login to ZW security microservice, obtain Bearer token
+#   1. AVS   — verify the beneficiary account holder's name
+#   2. Send  — credit transfer (pacs.008)
 #   3. Status — query payment status (pacs.028)
 #   4. Return — return the payment (pacs.004)
 #
 # Usage:
-#   ./test-flow.sh              # uses defaults below
+#   ./test-flow.sh                          # uses defaults below
 #   BASE_URL=http://myhost:9090 ./test-flow.sh
+#   ZW_URL=http://authhost:8080 ZW_USERNAME=alice ZW_PASSWORD=secret ./test-flow.sh
 # =============================================================================
 
 set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BASE_URL="${BASE_URL:-http://localhost:81460}"
+BASE_URL="${BASE_URL:-http://localhost:8460}"
+ZW_URL="${ZW_URL:-http://localhost:8080}"
+ZW_USERNAME="${ZW_USERNAME:-zawala}"
+ZW_PASSWORD="${ZW_PASSWORD:-changeme}"
 TIMEOUT=10   # curl connect/read timeout in seconds
 
 # ── Colours ───────────────────────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-RESET='\033[0m'
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[1;33m'
+CYAN=$'\033[0;36m'
+BOLD=$'\033[1m'
+RESET=$'\033[0m'
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 step() { echo -e "\n${CYAN}${BOLD}━━━  $*  ━━━${RESET}"; }
@@ -34,6 +39,7 @@ warn() { echo -e "${YELLOW}⚠  $*${RESET}"; }
 fail() { echo -e "${RED}✘  $*${RESET}"; }
 
 # Run curl; captures HTTP status code + body separately.
+# Automatically attaches Authorization header when ACCESS_TOKEN is set.
 # Usage: do_curl <METHOD> <URL> [extra curl args...]
 # Sets globals: HTTP_STATUS  BODY
 do_curl() {
@@ -41,9 +47,17 @@ do_curl() {
   local url="$1";    shift
   local tmp
   tmp=$(mktemp)
+
+  local auth_header=()
+  if [[ -n "${ACCESS_TOKEN:-}" ]]; then
+    auth_header=(-H "Authorization: Bearer $ACCESS_TOKEN")
+  fi
+
   HTTP_STATUS=$(curl -s -o "$tmp" -w "%{http_code}" \
     --max-time "$TIMEOUT" \
-    -X "$method" "$url" "$@" || echo "000")
+    -X "$method" "$url" \
+    "${auth_header[@]}" \
+    "$@" || echo "000")
   BODY=$(cat "$tmp")
   rm -f "$tmp"
 }
@@ -76,13 +90,47 @@ show_response() {
 }
 
 check_server() {
-  step "Checking server at $BASE_URL"
+  step "Checking Capital server at $BASE_URL"
   if ! curl -s --max-time 5 "$BASE_URL/actuator/health" &>/dev/null && \
      ! curl -s --max-time 5 "$BASE_URL" &>/dev/null; then
     warn "Server may not be reachable — continuing anyway"
   else
     ok "Server is up"
   fi
+}
+
+# ── 0. ZW Auth ────────────────────────────────────────────────────────────────
+ACCESS_TOKEN=""
+
+login_zw() {
+  step "STEP 0 — Auth: Login to ZW at $ZW_URL"
+  echo "  Username: $ZW_USERNAME"
+
+  local tmp
+  tmp=$(mktemp)
+  local status
+  status=$(curl -s -o "$tmp" -w "%{http_code}" \
+    --max-time "$TIMEOUT" \
+    -X POST "$ZW_URL/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"username\":\"$ZW_USERNAME\",\"password\":\"$ZW_PASSWORD\"}" || echo "000")
+  local body
+  body=$(cat "$tmp")
+  rm -f "$tmp"
+
+  if [[ "$status" != "200" ]]; then
+    fail "ZW login failed — HTTP $status: $body"
+    exit 1
+  fi
+
+  ACCESS_TOKEN=$(echo "$body" | grep -oP '"accessToken"\s*:\s*"\K[^"]+' || true)
+
+  if [[ -z "$ACCESS_TOKEN" ]]; then
+    fail "ZW login succeeded (HTTP 200) but accessToken missing in response"
+    exit 1
+  fi
+
+  ok "Authenticated — access token obtained"
 }
 
 # ── Test data ─────────────────────────────────────────────────────────────────
@@ -124,7 +172,7 @@ avs_verify() {
         warn "AVS did not verify — reasonCode: ${reason:-none}. Proceeding anyway for test purposes."
       fi
       ;;
-    401) fail "HTTP 401 — server requires auth. Is Spring Security permitting requests? Check SecurityConfig (dev profile must be active)." ; exit 1 ;;
+    401) fail "HTTP 401 — Bearer token was rejected. Check that ZW and Capital share the same jwt.secret." ; exit 1 ;;
     502) warn "AVS upstream unavailable (502). Downstream mock not running — continuing." ;;
     *)   warn "Unexpected AVS status $HTTP_STATUS — continuing." ;;
   esac
@@ -230,11 +278,58 @@ return_payment() {
   esac
 }
 
+# ── 5. Auth security tests ────────────────────────────────────────────────────
+test_auth() {
+  local saved_token="$ACCESS_TOKEN"
+  local passed=0 failed=0
+
+  step "STEP 5 — Auth: Token validation tests"
+
+  # Helper: send a transfer request and check the HTTP status
+  assert_auth() {
+    local label="$1" expected="$2"
+    do_curl POST "$BASE_URL/api/v1/avs/verify" \
+      -H "Content-Type: application/json" \
+      -d '{"firstName":"Test","lastName":"User","accountNumber":"0000000000","bankBic":"TESTBICXXX"}'
+    if [[ "$HTTP_STATUS" == "$expected" ]]; then
+      ok "$label — HTTP $HTTP_STATUS (expected)"
+      ((passed++))
+    else
+      fail "$label — expected HTTP $expected, got HTTP $HTTP_STATUS"
+      ((failed++))
+    fi
+  }
+
+  # No token
+  ACCESS_TOKEN=""
+  assert_auth "No token" "401"
+
+  # Invalid (malformed) token
+  ACCESS_TOKEN="this.is.not.a.valid.jwt"
+  assert_auth "Malformed token" "401"
+
+  # Valid structure but wrong signature
+  ACCESS_TOKEN="eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmYWtlIn0.invalidsignatureXXXXXXXXXXXXXXXXXXXXXXX"
+  assert_auth "Wrong signature" "401"
+
+  # Restore real token and confirm it still works
+  ACCESS_TOKEN="$saved_token"
+  assert_auth "Valid token (sanity check)" "200"
+
+  echo ""
+  if [[ $failed -eq 0 ]]; then
+    ok "All $passed auth tests passed"
+  else
+    fail "$failed/$((passed + failed)) auth tests failed"
+  fi
+}
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 summary() {
   echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
   echo -e "${BOLD}Test flow complete${RESET}"
-  echo -e "  Base URL : $BASE_URL"
+  echo -e "  Capital  : $BASE_URL"
+  echo -e "  ZW Auth  : $ZW_URL"
   echo -e "  msgId    : ${MSG_ID:-not captured}"
   echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
 }
@@ -245,14 +340,17 @@ summary() {
 
 if [[ -n "${MSG_ID:-}" ]]; then
   echo -e "${YELLOW}MSG_ID pre-set to '$MSG_ID' — skipping AVS and transfer steps.${RESET}"
+  login_zw
   query_status
   return_payment "${REASON_CODE:-CUST}"
 else
   check_server
+  login_zw
   avs_verify
   send_payment
   query_status
   return_payment "${REASON_CODE:-CUST}"
+  test_auth
 fi
 
 summary
