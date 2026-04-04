@@ -133,7 +133,41 @@ login_zw() {
   ok "Authenticated — access token obtained"
 }
 
-# ── Test data ─────────────────────────────────────────────────────────────────
+# ── Name pools (South African) ────────────────────────────────────────────────
+SA_FIRST_NAMES=(
+  "Lerato" "Thabo" "Nomsa" "Johannes" "Precious"
+  "Sipho" "Nomvula" "Pieter" "Bongani" "Refilwe"
+  "Tshepo" "Amahle" "Jacob" "Willem" "Ntombi"
+)
+SA_SURNAMES=(
+  "Dlamini" "Nkosi" "Botha" "Van der Merwe" "Smith"
+  "Jacobs" "Mbeki" "Zuma" "Mandel" "Tambo"
+  "Pienaar" "Coetzee" "Mokoena" "Khumalo" "Ndlovu"
+)
+SA_BICS=(
+  "ABSAZAJJXXX" "FIRNZAJJXXX" "NEDSZAJJXXX"
+  "SBZAZAJJXXX" "IRCCZAJJXXX" "CABLZAJJXXX"
+)
+
+# Return a random element from a bash array.
+# Usage: rand_element "${ARRAY[@]}"
+rand_element() {
+  local arr=("$@")
+  echo "${arr[RANDOM % ${#arr[@]}]}"
+}
+
+# Generate a random 10-digit account number.
+rand_account() {
+  printf '%010d' $(( RANDOM * RANDOM % 9000000000 + 1000000000 ))
+}
+
+# Generate a random ZAR amount between 1000.00 and 2500.00.
+rand_amount() {
+  local cents=$(( RANDOM % 150001 + 100000 ))   # 100000–250000 cents
+  printf '%d.%02d' $(( cents / 100 )) $(( cents % 100 ))
+}
+
+# ── Test data (defaults — overridden per transaction in batch mode) ───────────
 DEBTOR_FIRST="John"
 DEBTOR_LAST="Doe"
 DEBTOR_ACCOUNT="1234567890"
@@ -324,6 +358,98 @@ test_auth() {
   fi
 }
 
+# ── Batch transactions ────────────────────────────────────────────────────────
+BATCH_COUNT="${BATCH_COUNT:-12}"
+BATCH_PASS=0
+BATCH_FAIL=0
+declare -a BATCH_MSG_IDS=()
+
+run_batch() {
+  step "BATCH — Running $BATCH_COUNT randomised transactions (1000–2500 ZAR)"
+
+  for (( i=1; i<=BATCH_COUNT; i++ )); do
+    # Randomise all parties for this transaction
+    local d_first d_last c_first c_last c_name
+    d_first=$(rand_element "${SA_FIRST_NAMES[@]}")
+    d_last=$(rand_element "${SA_SURNAMES[@]}")
+    c_first=$(rand_element "${SA_FIRST_NAMES[@]}")
+    c_last=$(rand_element "${SA_SURNAMES[@]}")
+    c_name="$c_first $c_last"
+
+    local d_acct c_acct bic amt
+    d_acct=$(rand_account)
+    c_acct=$(rand_account)
+    bic=$(rand_element "${SA_BICS[@]}")
+    amt=$(rand_amount)
+
+    local ref="BATCH-$(printf '%02d' $i)-$(date +%Y%m%d%H%M%S)"
+
+    echo -e "\n${BOLD}── Tx $i/$BATCH_COUNT ──${RESET}"
+    echo "  Debtor  : $d_first $d_last  ($d_acct)"
+    echo "  Creditor: $c_name  ($c_acct)  BIC: $bic"
+    echo "  Amount  : $amt ZAR  |  Ref: $ref"
+
+    # AVS
+    do_curl POST "$BASE_URL/api/v1/avs/verify" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"firstName\":    \"$c_first\",
+        \"lastName\":     \"$c_last\",
+        \"accountNumber\":\"$c_acct\",
+        \"bankBic\":      \"$bic\"
+      }"
+    local avs_status="$HTTP_STATUS"
+    case "$avs_status" in
+      200) ok "  AVS HTTP 200" ;;
+      401) fail "  AVS HTTP 401 — token rejected"; BATCH_FAIL=$(( BATCH_FAIL+1 )); continue ;;
+      502) warn "  AVS 502 — mock unavailable, continuing" ;;
+      *)   warn "  AVS unexpected $avs_status" ;;
+    esac
+
+    # Transfer
+    do_curl POST "$BASE_URL/api/v1/payments/transfer" \
+      -H "Content-Type: application/json" \
+      -d "{
+        \"firstName\":             \"$d_first\",
+        \"lastName\":              \"$d_last\",
+        \"debtorAccountNumber\":   \"$d_acct\",
+        \"amount\":                $amt,
+        \"currency\":              \"ZAR\",
+        \"creditorName\":          \"$c_name\",
+        \"creditorAccountNumber\": \"$c_acct\",
+        \"creditorAgentBic\":      \"$bic\",
+        \"remittanceInfo\":        \"$ref\"
+      }"
+
+    local tx_status="$HTTP_STATUS" tx_body="$BODY"
+    case "$tx_status" in
+      200)
+        local mid
+        mid=$(xml_value "OrgnlMsgId" "$tx_body")
+        [[ -z "$mid" ]] && mid=$(echo "$tx_body" | grep -oP 'MSG-[A-F0-9]{16}' | head -1 || true)
+        if [[ -n "$mid" ]]; then
+          ok "  Transfer accepted — msgId: $mid"
+          BATCH_MSG_IDS+=("$mid")
+        else
+          ok "  Transfer accepted (msgId not extracted)"
+        fi
+        BATCH_PASS=$(( BATCH_PASS+1 ))
+        ;;
+      502)
+        warn "  Transfer 502 — upstream unavailable"
+        BATCH_PASS=$(( BATCH_PASS+1 ))
+        ;;
+      *)
+        fail "  Transfer HTTP $tx_status"
+        BATCH_FAIL=$(( BATCH_FAIL+1 ))
+        ;;
+    esac
+  done
+
+  echo ""
+  echo -e "${BOLD}Batch result: ${GREEN}$BATCH_PASS passed${RESET}  ${RED}$BATCH_FAIL failed${RESET}  (of $BATCH_COUNT)"
+}
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 summary() {
   echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
@@ -331,6 +457,15 @@ summary() {
   echo -e "  Capital  : $BASE_URL"
   echo -e "  ZW Auth  : $ZW_URL"
   echo -e "  msgId    : ${MSG_ID:-not captured}"
+  if [[ $BATCH_COUNT -gt 0 && $(( BATCH_PASS + BATCH_FAIL )) -gt 0 ]]; then
+    echo -e "  Batch    : ${GREEN}${BATCH_PASS} passed${RESET} / ${RED}${BATCH_FAIL} failed${RESET} of $BATCH_COUNT"
+    if [[ ${#BATCH_MSG_IDS[@]} -gt 0 ]]; then
+      echo -e "  Batch msgIds captured: ${#BATCH_MSG_IDS[@]}"
+      for mid in "${BATCH_MSG_IDS[@]}"; do
+        echo -e "    • $mid"
+      done
+    fi
+  fi
   echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
 }
 
@@ -351,6 +486,7 @@ else
   query_status
   return_payment "${REASON_CODE:-CUST}"
   test_auth
+  run_batch
 fi
 
 summary
