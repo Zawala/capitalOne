@@ -437,6 +437,52 @@ MSG_ID=MSG-5D75E258EFE448EF ./test-flow.sh
 REASON_CODE=MD06 ./test-flow.sh
 ```
 
+### Bulk / batch payments
+
+After the single-transaction flow the script automatically runs a batch of randomised payments. Each batch transaction performs AVS verification followed by a credit transfer (pacs.008) with randomly generated South African parties and amounts.
+
+**Control the batch size**
+
+```bash
+# Run 50 randomised transactions (default is 12)
+BATCH_COUNT=50 ./test-flow.sh
+
+# Combine with a custom host
+BATCH_COUNT=100 BASE_URL=http://myserver:9090 ./test-flow.sh
+```
+
+**What each batch transaction randomises**
+
+| Field | Range / pool |
+|---|---|
+| Debtor / Creditor first name | 15 South African first names |
+| Debtor / Creditor surname | 15 South African surnames |
+| Debtor / Creditor account | Random 10-digit number |
+| Creditor BIC | 6 South African bank BICs |
+| Amount | ZAR 1 000.00 – 2 500.00 (random cents) |
+| Remittance ref | `BATCH-<seq>-<timestamp>` |
+
+**Batch summary output**
+
+At the end of the run a summary line is printed along with every `msgId` that was captured from a successful response:
+
+```
+Batch result: 12 passed  0 failed  (of 12)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Test flow complete
+  Capital  : http://localhost:8460
+  ZW Auth  : http://localhost:8080
+  msgId    : MSG-5D75E258EFE448EF
+  Batch    : 12 passed / 0 failed of 12
+  Batch msgIds captured: 12
+    • MSG-A1B2C3D4E5F6G7H8
+    • MSG-...
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+A transaction counts as **passed** on HTTP 200 or 502 (upstream mock unavailable). It counts as **failed** on any other status (e.g. 401 token rejection). The script continues even when individual transactions fail so the full batch always runs.
+
 ### Mock downstream responses (dev only)
 
 In the `dev` profile all outbound ISO 20022 calls are routed to `/mock/*` on the same server:
