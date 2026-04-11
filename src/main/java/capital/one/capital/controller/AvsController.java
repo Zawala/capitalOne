@@ -10,6 +10,10 @@ import capital.one.capital.service.Acmt023BuilderService;
 import capital.one.capital.service.Acmt023BuilderService.BuildResult;
 import capital.one.capital.service.Iso20022MarshallingService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import jakarta.xml.bind.JAXBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+@Tag(name = "Account Verification", description = "Account Verification Service (AVS) — verifies account holder names via ISO 20022 acmt.023/acmt.024")
 @RestController
 @RequestMapping("/api/v1/avs")
 public class AvsController {
@@ -60,8 +65,15 @@ public class AvsController {
      *   <li>Updates the log to SENT or FAILED.</li>
      * </ol>
      */
+    @Operation(summary = "Verify account holder name",
+               description = "Builds an acmt.023 IdentificationVerificationRequest, sends it to the target bank, "
+                           + "and returns the acmt.024 verification result.")
+    @ApiResponse(responseCode = "200", description = "Verification completed successfully")
+    @ApiResponse(responseCode = "400", description = "Invalid request — validation failed")
+    @ApiResponse(responseCode = "500", description = "Failed to build or marshal the acmt.023 message")
+    @ApiResponse(responseCode = "502", description = "Downstream AVS endpoint unreachable or returned an error")
     @PostMapping("/verify")
-    public ResponseEntity<AvsResponseDTO> verify(@RequestBody AvsRequestDTO request) {
+    public ResponseEntity<AvsResponseDTO> verify(@Valid @RequestBody AvsRequestDTO request) {
 
         // ── 1. Build acmt.023 ─────────────────────────────────────────────────
         BuildResult built;

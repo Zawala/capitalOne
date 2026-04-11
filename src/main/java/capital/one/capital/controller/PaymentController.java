@@ -11,6 +11,10 @@ import capital.one.capital.service.Pacs008BuilderService.BuildResult;
 import capital.one.capital.service.PaymentKafkaProducer;
 import capital.one.capital.service.WalletPaymentEvent;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import jakarta.xml.bind.JAXBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +40,7 @@ import javax.xml.xpath.XPathFactory;
 import java.io.StringReader;
 import java.math.BigDecimal;
 
+@Tag(name = "Payments", description = "Credit transfers — send and receive ISO 20022 pacs.008 payments")
 @RestController
 @RequestMapping("/api/v1/payments")
 public class PaymentController {
@@ -79,6 +84,10 @@ public class PaymentController {
      * Accepts any pacs.008.001.xx variant. Mobile numbers in {@code <CtctDtls><MobNb>}
      * are treated as wallet addresses when no dedicated account element is present.
      */
+    @Operation(summary = "Receive inbound credit transfer",
+               description = "Accepts an inbound pacs.008 XML payload, parses it, persists a deposit record, and publishes to Kafka.")
+    @ApiResponse(responseCode = "200", description = "Deposit accepted")
+    @ApiResponse(responseCode = "400", description = "Invalid pacs.008 XML payload")
     @PostMapping(value = "/receive", consumes = MediaType.APPLICATION_XML_VALUE)
     public ResponseEntity<String> receive(@RequestBody String rawXml) {
 
@@ -182,8 +191,14 @@ public class PaymentController {
         }
     }
 
+    @Operation(summary = "Initiate credit transfer",
+               description = "Builds a pacs.008 credit transfer, persists a log, sends XML to the creditor agent, and publishes to Kafka.")
+    @ApiResponse(responseCode = "200", description = "Transfer sent successfully")
+    @ApiResponse(responseCode = "400", description = "Invalid request — validation failed")
+    @ApiResponse(responseCode = "500", description = "Failed to build or marshal the pacs.008 message")
+    @ApiResponse(responseCode = "502", description = "Creditor agent endpoint unreachable or returned an error")
     @PostMapping("/transfer")
-    public ResponseEntity<String> transfer(@RequestBody TransferRequestDTO request) {
+    public ResponseEntity<String> transfer(@Valid @RequestBody TransferRequestDTO request) {
 
         // ── 1. Build pacs.008 ─────────────────────────────────────────────────
         BuildResult built;

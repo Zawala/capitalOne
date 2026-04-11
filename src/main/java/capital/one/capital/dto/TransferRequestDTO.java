@@ -1,34 +1,60 @@
 package capital.one.capital.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
+
 import java.math.BigDecimal;
 
+@Schema(description = "Request to initiate a credit transfer (pacs.008)")
 public class TransferRequestDTO {
 
-    /** Debtor (client) first name */
+    @NotBlank(message = "First name is required")
+    @Size(min = 1, max = 70, message = "First name must be between 1 and 70 characters")
+    @Schema(description = "Debtor (client) first name", example = "Kelvin")
     private String firstName;
 
-    /** Debtor (client) last name */
+    @NotBlank(message = "Last name is required")
+    @Size(min = 1, max = 70, message = "Last name must be between 1 and 70 characters")
+    @Schema(description = "Debtor (client) last name", example = "Zawala")
     private String lastName;
 
-    /** Debtor account number (IBAN or local account) */
+    @NotBlank(message = "Debtor account number is required")
+    @Size(min = 5, max = 34, message = "Debtor account number must be between 5 and 34 characters")
+    @Schema(description = "Debtor account number (IBAN or local account)", example = "ZA00123456789012")
     private String debtorAccountNumber;
 
-    /** Transfer amount */
+    @NotNull(message = "Amount is required")
+    @DecimalMin(value = "0.01", message = "Amount must be greater than zero")
+    @Schema(description = "Transfer amount", example = "1500.00")
     private BigDecimal amount;
 
-    /** ISO 4217 currency code, e.g. ZAR, USD */
+    @NotBlank(message = "Currency is required")
+    @Pattern(regexp = "^[A-Z]{3}$", message = "Currency must be a 3-letter ISO 4217 code")
+    @Schema(description = "ISO 4217 currency code", example = "ZAR")
     private String currency;
 
-    /** Creditor (beneficiary) full name */
+    @NotBlank(message = "Creditor name is required")
+    @Size(min = 1, max = 140, message = "Creditor name must be between 1 and 140 characters")
+    @Schema(description = "Creditor (beneficiary) full name", example = "Jane Doe")
     private String creditorName;
 
-    /** Creditor account number (IBAN or local account) */
+    @NotBlank(message = "Creditor account number is required")
+    @Size(min = 5, max = 34, message = "Creditor account number must be between 5 and 34 characters")
+    @Schema(description = "Creditor account number (IBAN or local account)", example = "ZA00987654321098")
     private String creditorAccountNumber;
 
-    /** BIC of the destination (creditor agent) bank — varies per transaction */
+    @NotBlank(message = "Creditor agent BIC is required")
+    @Pattern(regexp = "^[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?$",
+             message = "Creditor agent BIC must be a valid 8 or 11 character SWIFT/BIC code")
+    @Schema(description = "BIC of the destination (creditor agent) bank", example = "FIABORJJXXX")
     private String creditorAgentBic;
 
-    /** Free-text payment reference shown on statement */
+    @Size(max = 140, message = "Remittance info must not exceed 140 characters")
+    @Schema(description = "Free-text payment reference shown on statement", example = "Invoice INV-2026-042")
     private String remittanceInfo;
 
     public String getFirstName() { return firstName; }

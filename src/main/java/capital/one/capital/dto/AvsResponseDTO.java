@@ -1,25 +1,23 @@
 package capital.one.capital.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
+@Schema(description = "Result of an account verification request")
 public class AvsResponseDTO {
 
-    /** true = account holder name matches the account, false = mismatch */
+    @Schema(description = "true = account holder name matches the account, false = mismatch", example = "true")
     private boolean verified;
 
-    /** The reference ID echoed back from the acmt.024 VerificationReport.OrgnlId */
+    @Schema(description = "Reference ID echoed back from the acmt.024 VerificationReport", example = "AVS-20260411-ABC123")
     private String referenceId;
 
-    /**
-     * Reason code when verified = false.
-     * See {@link capital.one.capital.model.AvsReasonCode} for the full list of possible values.
-     * Common codes: PN01 (name mismatch), PN02 (close match), PI01 (ID mismatch),
-     * AC01 (invalid account), AC04 (closed), AC06 (blocked), NORR (no response).
-     */
+    @Schema(description = "Reason code when verified = false (e.g. PN01, PN02, AC01, AC04, AC06, NORR)", example = "PN01")
     private String reasonCode;
 
-    /** Account holder name as held by the responding institution (if returned) */
+    @Schema(description = "Account holder name as held by the responding institution", example = "Kelvin Zawala")
     private String registeredName;
 
-    /** Account number as held by the responding institution (if returned) */
+    @Schema(description = "Account number as held by the responding institution", example = "ZA00123456789012")
     private String registeredAccount;
 
     public boolean isVerified() { return verified; }

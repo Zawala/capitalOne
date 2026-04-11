@@ -14,6 +14,11 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 import capital.one.capital.config.InstitutionProperties;
 import capital.one.capital.model.ReturnReasonCode;
 import capital.one.capital.model.TransferLog;
@@ -25,6 +30,7 @@ import capital.one.capital.service.PaymentKafkaProducer;
 import capital.one.capital.service.WalletPaymentEvent;
 import jakarta.xml.bind.JAXBException;
 
+@Tag(name = "Payments", description = "Credit transfers — send and receive ISO 20022 pacs.008 payments")
 @RestController
 @RequestMapping("/api/v1/payments")
 public class PaymentReturnController {
@@ -65,9 +71,18 @@ public class PaymentReturnController {
      * @param msgId      the messageId of the original pacs.008 transfer to return
      * @param reasonCode ISO 20022 external return reason code (e.g. DUPL, FRAD, CUST); defaults to DUPL
      */
+    @Operation(summary = "Return a payment",
+               description = "Builds a pacs.004 PaymentReturn for the given original transfer and sends it to the return endpoint.")
+    @ApiResponse(responseCode = "200", description = "Return response received")
+    @ApiResponse(responseCode = "400", description = "Unknown return reason code")
+    @ApiResponse(responseCode = "404", description = "No transfer found with the given message ID")
+    @ApiResponse(responseCode = "500", description = "Failed to build or marshal the pacs.004 message")
+    @ApiResponse(responseCode = "502", description = "Return endpoint unreachable or returned an error")
     @GetMapping("/return")
     public ResponseEntity<String> returnPayment(
+            @Parameter(description = "Message ID of the original pacs.008 transfer to return", required = true)
             @RequestParam String msgId,
+            @Parameter(description = "ISO 20022 return reason code (e.g. DUPL, FRAD, CUST). Defaults to DUPL")
             @RequestParam(required = false) String reasonCode) {
 
         // ── 1. Validate reason code (if supplied) ─────────────────────────────

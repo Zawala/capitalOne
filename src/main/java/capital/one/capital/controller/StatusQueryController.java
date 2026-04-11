@@ -6,6 +6,10 @@ import capital.one.capital.service.Iso20022MarshallingService;
 import capital.one.capital.service.Pacs028BuilderService;
 import capital.one.capital.service.Pacs028BuilderService.BuildResult;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.xml.bind.JAXBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+@Tag(name = "Payments", description = "Credit transfers — send and receive ISO 20022 pacs.008 payments")
 @RestController
 @RequestMapping("/api/v1/payments")
 public class StatusQueryController {
@@ -57,8 +62,16 @@ public class StatusQueryController {
      *
      * @param msgId the messageId of the original pacs.008 transfer to query
      */
+    @Operation(summary = "Query payment status",
+               description = "Builds a pacs.028 FIToFIPaymentStatusRequest for the given message ID and returns the pacs.002 status response.")
+    @ApiResponse(responseCode = "200", description = "Status response received")
+    @ApiResponse(responseCode = "404", description = "No transfer found with the given message ID")
+    @ApiResponse(responseCode = "500", description = "Failed to build or marshal the pacs.028 message")
+    @ApiResponse(responseCode = "502", description = "Status endpoint unreachable or returned an error")
     @GetMapping("/status")
-    public ResponseEntity<String> queryStatus(@RequestParam String msgId) {
+    public ResponseEntity<String> queryStatus(
+            @Parameter(description = "Message ID of the original pacs.008 transfer", required = true)
+            @RequestParam String msgId) {
 
         // ── 1. Validate original transfer exists ──────────────────────────────
         if (transferLogRepository.findByMessageId(msgId).isEmpty()) {
