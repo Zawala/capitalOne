@@ -18,6 +18,9 @@ public enum ReturnReasonCode {
     /** The currency specified is not accepted for this payment. */
     AM03("Not Allowed Currency"),
 
+    /** The transaction is a duplicate of a previously submitted payment. */
+    DUPL("Duplicate Payment"),
+
     /** This payment appears to be a duplicate of one already submitted. */
     AM05("Duplication"),
 
@@ -78,6 +81,12 @@ public enum ReturnReasonCode {
     DNOR("Debtor MNO Not Registered"),
 
     // ── Customer / regulatory ─────────────────────────────────────────────────
+
+    /** The payment is suspected or confirmed to be fraudulent. */
+    FRAD("Fraudulent Origin"),
+
+    /** A technical issue prevented the payment from being processed correctly. */
+    TECH("Technical Problem"),
 
     /** The return was requested directly by the account holder. */
     CUST("Requested By Customer"),

@@ -28,6 +28,7 @@ public class PaymentKafkaProducer {
 
     public static final String TOPIC_DEPOSITS = "wallet-deposits";
     public static final String TOPIC_CREDITS  = "wallet-credits";
+    public static final String TOPIC_RETURNS  = "wallet-returns";
 
     private static final Logger log = LoggerFactory.getLogger(PaymentKafkaProducer.class);
 
@@ -52,6 +53,13 @@ public class PaymentKafkaProducer {
      */
     public void publishCredit(WalletPaymentEvent event) {
         publish(TOPIC_CREDITS, event);
+    }
+
+    /**
+     * Publishes a payment return event to {@value #TOPIC_RETURNS}.
+     */
+    public void publishReturn(WalletPaymentEvent event) {
+        publish(TOPIC_RETURNS, event);
     }
 
     private void publish(String topic, WalletPaymentEvent event) {

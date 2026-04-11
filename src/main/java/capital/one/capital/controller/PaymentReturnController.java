@@ -1,14 +1,5 @@
 package capital.one.capital.controller;
 
-import capital.one.capital.config.InstitutionProperties;
-import capital.one.capital.model.ReturnReasonCode;
-import capital.one.capital.model.TransferLog;
-import capital.one.capital.repository.TransferLogRepository;
-import capital.one.capital.service.Iso20022MarshallingService;
-import capital.one.capital.service.Pacs004BuilderService;
-import capital.one.capital.service.Pacs004BuilderService.BuildResult;
-
-import jakarta.xml.bind.JAXBException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
@@ -23,6 +14,17 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import capital.one.capital.config.InstitutionProperties;
+import capital.one.capital.model.ReturnReasonCode;
+import capital.one.capital.model.TransferLog;
+import capital.one.capital.repository.TransferLogRepository;
+import capital.one.capital.service.Iso20022MarshallingService;
+import capital.one.capital.service.Pacs004BuilderService;
+import capital.one.capital.service.Pacs004BuilderService.BuildResult;
+import capital.one.capital.service.PaymentKafkaProducer;
+import capital.one.capital.service.WalletPaymentEvent;
+import jakarta.xml.bind.JAXBException;
+
 @RestController
 @RequestMapping("/api/v1/payments")
 public class PaymentReturnController {
@@ -34,18 +36,21 @@ public class PaymentReturnController {
     private final TransferLogRepository transferLogRepository;
     private final InstitutionProperties institution;
     private final RestTemplate restTemplate;
+    private final PaymentKafkaProducer kafkaProducer;
 
     public PaymentReturnController(
             Pacs004BuilderService pacs004Builder,
             Iso20022MarshallingService marshaller,
             TransferLogRepository transferLogRepository,
             InstitutionProperties institution,
-            RestTemplate restTemplate) {
+            RestTemplate restTemplate,
+            PaymentKafkaProducer kafkaProducer) {
         this.pacs004Builder = pacs004Builder;
         this.marshaller = marshaller;
         this.transferLogRepository = transferLogRepository;
         this.institution = institution;
         this.restTemplate = restTemplate;
+        this.kafkaProducer = kafkaProducer;
     }
 
     /**
@@ -107,6 +112,18 @@ public class PaymentReturnController {
 
             log.info("Return response received — rtrMsgId={} httpStatus={}",
                     built.messageId(), response.getStatusCode());
+
+            kafkaProducer.publishReturn(new WalletPaymentEvent(
+                    built.messageId(),
+                    institution.getBic(),
+                    original.getCreditorName(),
+                    original.getCreditorAccount(),
+                    original.getAmount(),
+                    original.getCurrency(),
+                    "",
+                    original.getDebtorName(),
+                    original.getDebtorAccount()));
+
             return ResponseEntity.ok(response.getBody());
 
         } catch (RestClientException e) {
@@ -115,4 +132,6 @@ public class PaymentReturnController {
                     .body("Payment return failed: " + e.getMessage());
         }
     }
+
+    
 }

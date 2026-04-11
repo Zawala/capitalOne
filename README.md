@@ -22,6 +22,7 @@ A Spring Boot gateway that accepts JSON over REST and translates it into ISO 200
 | Flow | Direction | ISO 20022 Message | XSD in use |
 |---|---|---|---|
 | Payment | Outbound | FIToFI Customer Credit Transfer | `pacs.008.001.14` |
+| Payment (Deposit) | Inbound | FIToFI Customer Credit Transfer | `pacs.008.001.xx` |
 | Payment Response | Inbound | FIToFI Payment Status Report | `pacs.002.001.16` |
 | Payment Return | Outbound | Payment Return | `pacs.004.001.15` |
 | Payment Return Response | Inbound | FIToFI Payment Status Report | `pacs.002.001.16` |
@@ -41,6 +42,9 @@ Client (JSON)
 ┌─────────────────────────────────────────┐
 │           REST Controllers              │
 │  POST /api/v1/payments/transfer         │
+│  POST /api/v1/payments/receive          │
+│  GET  /api/v1/payments/return           │
+│  GET  /api/v1/payments/status           │
 │  POST /api/v1/avs/verify                │
 └────────────────┬────────────────────────┘
                  │
@@ -59,10 +63,15 @@ Client (JSON)
 └───────────┬─────────────┬───────────────┘
             │             │
             ▼             ▼
-    ┌───────────┐   ┌─────────────┐
-    │  DB Log   │   │  HTTP POST  │
-    │ (JPA)     │   │ (RestTemp.) │  → destination institution
-    └───────────┘   └─────────────┘
+    ┌───────────┐   ┌─────────────┐   ┌──────────────┐
+    │  DB Log   │   │  HTTP POST  │   │    Kafka     │
+    │ (JPA)     │   │ (RestTemp.) │   │  Producer    │
+    └───────────┘   └─────────────┘   └──────────────┘
+                          │                   │
+                          ▼                   ▼
+                    destination          wallet-deposits
+                    institution          wallet-credits
+                                         wallet-returns
 ```
 
 ### Message population
@@ -99,7 +108,8 @@ src/
 │   │   │   ├── InstitutionProperties.java   # @ConfigurationProperties for institution.*
 │   │   │   └── RestTemplateConfig.java
 │   │   ├── controller/
-│   │   │   ├── PaymentController.java       # POST /api/v1/payments/transfer
+│   │   │   ├── PaymentController.java       # POST /api/v1/payments/transfer, /receive
+│   │   │   ├── PaymentReturnController.java # GET  /api/v1/payments/return
 │   │   │   └── AvsController.java           # POST /api/v1/avs/verify
 │   │   ├── dto/
 │   │   │   ├── TransferRequestDTO.java
@@ -108,14 +118,18 @@ src/
 │   │   ├── model/
 │   │   │   ├── TransferLog.java             # DB entity — every payment attempt
 │   │   │   ├── AvsLog.java                  # DB entity — every AVS check
-│   │   │   └── TransferStatus.java          # PENDING | SENT | FAILED
+│   │   │   ├── TransferStatus.java          # PENDING | SENT | RECEIVED | FAILED
+│   │   │   └── ReturnReasonCode.java       # ISO 20022 return reason codes
 │   │   ├── repository/
 │   │   │   ├── TransferLogRepository.java
 │   │   │   └── AvsLogRepository.java
 │   │   └── service/
 │   │       ├── Pacs008BuilderService.java   # builds pacs.008 Document
+│   │       ├── Pacs004BuilderService.java   # builds pacs.004 Document (returns)
 │   │       ├── Acmt023BuilderService.java   # builds acmt.023 Document + parses acmt.024
-│   │       └── Iso20022MarshallingService.java  # JAXB marshal / unmarshal for all types
+│   │       ├── Iso20022MarshallingService.java  # JAXB marshal / unmarshal for all types
+│   │       ├── PaymentKafkaProducer.java    # publishes to wallet-deposits/credits/returns
+│   │       └── WalletPaymentEvent.java      # Kafka event payload record
 │   ├── resources/
 │   │   ├── application.properties           # base config + institution details
 │   │   ├── application-dev.properties       # H2 in-memory
@@ -218,12 +232,15 @@ Initiates a credit transfer. Builds a `pacs.008.001.14` message and forwards it 
 
 **Response** — `200 OK`: raw XML response from the destination institution.
 
+**Kafka**: on success, publishes a `WalletPaymentEvent` to `wallet-credits`.
+
 **Transfer lifecycle logged to `transfer_log`:**
 
 | Status | Meaning |
 |---|---|
 | `PENDING` | Message built and persisted, not yet sent |
 | `SENT` | Destination returned HTTP 2xx |
+| `RECEIVED` | Inbound deposit accepted via `/receive` |
 | `FAILED` | Network error or non-2xx response |
 
 ---
@@ -256,6 +273,101 @@ Verifies that an account holder name matches an account at a given bank. Builds 
 When `verified` is `false`, `reasonCode` contains the ISO 20022 reason code returned by the responding bank (e.g. `NMAT` = no match, `NMNS` = name mismatch).
 
 **AVS lifecycle logged to `avs_log`.**
+
+---
+
+### POST `/api/v1/payments/receive`
+
+Receives an inbound pacs.008 credit transfer (wallet deposit). Accepts any `pacs.008.001.xx` variant via namespace-agnostic XML parsing. Mobile numbers in `<CtctDtls><MobNb>` are treated as wallet addresses when no dedicated account element is present.
+
+**Request** — `Content-Type: application/xml`
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.07">
+    <FIToFICstmrCdtTrf>
+        <GrpHdr>
+            <MsgId>20240416212006PROD1114</MsgId>
+            <CreDtTm>2024-04-16T10:52:14.905+02:00</CreDtTm>
+            <NbOfTxs>1</NbOfTxs>
+            <SttlmInf><SttlmMtd>CLRG</SttlmMtd></SttlmInf>
+            <InstgAgt><FinInstnId><Othr><Id>212006</Id></Othr></FinInstnId></InstgAgt>
+            <InstdAgt><FinInstnId><Othr><Id>192003</Id></Othr></FinInstnId></InstdAgt>
+        </GrpHdr>
+        <CdtTrfTxInf>
+            <PmtId>
+                <EndToEndId>20240416212006PROD1114</EndToEndId>
+                <TxId>20240416212006PROD1114</TxId>
+            </PmtId>
+            <PmtTpInf><SvcLvl><Cd>NURG</Cd></SvcLvl></PmtTpInf>
+            <IntrBkSttlmAmt Ccy="ZAR">10</IntrBkSttlmAmt>
+            <ChrgBr>CRED</ChrgBr>
+            <Dbtr>
+                <Nm>Peterson Tengende</Nm>
+                <CtctDtls><MobNb>+27-682584738</MobNb></CtctDtls>
+            </Dbtr>
+            <DbtrAgt><FinInstnId><Othr><Id>212006</Id></Othr></FinInstnId></DbtrAgt>
+            <CdtrAgt><FinInstnId><Othr><Id>192003</Id></Othr></FinInstnId></CdtrAgt>
+            <Cdtr>
+                <Nm>Yogita Dayabhai</Nm>
+                <CtctDtls><MobNb>+260-965929918</MobNb></CtctDtls>
+            </Cdtr>
+            <RgltryRptg><Dtls><Cd>10402</Cd></Dtls></RgltryRptg>
+            <RmtInf><Ustrd>GIFT TO Yogita Dayabhai</Ustrd></RmtInf>
+        </CdtTrfTxInf>
+    </FIToFICstmrCdtTrf>
+</Document>
+```
+
+**Response** — `200 OK`: `Deposit accepted: <msgId>`
+
+**Kafka**: publishes a `WalletPaymentEvent` to `wallet-deposits`.
+
+**Deposit logged to `transfer_log` with status `RECEIVED`.**
+
+---
+
+### GET `/api/v1/payments/return`
+
+Returns an existing payment. Builds a `pacs.004.001.15` message and forwards it to the configured return URL.
+
+**Parameters**
+
+| Name | Required | Description |
+|---|---|---|
+| `msgId` | yes | The messageId of the original pacs.008 transfer to return |
+| `reasonCode` | no | ISO 20022 return reason code (e.g. `DUPL`, `FRAD`, `CUST`); defaults to `DUPL` |
+
+**Example**: `GET /api/v1/payments/return?msgId=MSG-5D75E258EFE448EF&reasonCode=CUST`
+
+**Response** — `200 OK`: raw XML pacs.002 response from the destination institution.
+
+**Kafka**: on success, publishes a `WalletPaymentEvent` to `wallet-returns` (sender/receiver reversed from the original transfer).
+
+---
+
+## Kafka Topics
+
+All Kafka events use the `WalletPaymentEvent` JSON structure with the ISO 20022 MessageId as the Kafka message key (partition affinity).
+
+| Topic | Trigger | Direction |
+|---|---|---|
+| `wallet-deposits` | `POST /receive` — inbound pacs.008 deposit | Inbound |
+| `wallet-credits` | `POST /transfer` — outbound credit transfer | Outbound |
+| `wallet-returns` | `GET /return` — payment return (pacs.004) | Outbound |
+
+**`WalletPaymentEvent` fields**
+
+| Field | Source (pacs.008) |
+|---|---|
+| `messageId` | `GrpHdr/MsgId` |
+| `senderInstitution` | `InstgAgt/FinInstnId` (BIC or `Othr/Id`) |
+| `senderName` | `Dbtr/Nm` |
+| `senderAccount` | `DbtrAcct` or `Dbtr/CtctDtls/MobNb` |
+| `amount` | `IntrBkSttlmAmt` |
+| `currency` | `IntrBkSttlmAmt/@Ccy` |
+| `receiverInstitution` | `InstdAgt/FinInstnId` (BIC or `Othr/Id`) |
+| `receiverName` | `Cdtr/Nm` |
+| `receiverAccount` | `CdtrAcct` or `Cdtr/CtctDtls/MobNb` |
 
 ---
 
@@ -462,22 +574,44 @@ BATCH_COUNT=100 BASE_URL=http://myserver:9090 ./test-flow.sh
 | Amount | ZAR 1 000.00 – 2 500.00 (random cents) |
 | Remittance ref | `BATCH-<seq>-<timestamp>` |
 
-**Batch summary output**
+### Wallet deposit tests
 
-At the end of the run a summary line is printed along with every `msgId` that was captured from a successful response:
+The script sends inbound pacs.008 XML payloads (wallet-style with mobile numbers) to `POST /receive`, which persists the deposit and publishes to the `wallet-deposits` Kafka topic.
+
+```bash
+# Control deposit batch size (default is 5)
+DEPOSIT_BATCH_COUNT=20 ./test-flow.sh
+```
+
+Each deposit uses the same XML structure as `credittransfer_wallet.xml` — mobile numbers in `<CtctDtls><MobNb>` serve as wallet addresses.
+
+### Return batch tests
+
+After deposits and transfers, the script returns a subset of transactions via `GET /return` with randomised reason codes (`CUST`, `DUPL`, `FRAD`, `TECH`, `AM09`). Successful returns publish to the `wallet-returns` Kafka topic.
+
+```bash
+# Control how many returns to run (defaults to all captured msgIds)
+RETURN_BATCH_COUNT=10 ./test-flow.sh
+```
+
+### Batch summary output
+
+At the end of the run a summary shows results for all batch types and the Kafka topics exercised:
 
 ```
-Batch result: 12 passed  0 failed  (of 12)
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Test flow complete
   Capital  : http://localhost:8460
   ZW Auth  : http://localhost:8080
   msgId    : MSG-5D75E258EFE448EF
   Batch    : 12 passed / 0 failed of 12
-  Batch msgIds captured: 12
-    • MSG-A1B2C3D4E5F6G7H8
-    • MSG-...
+  Deposits : 5 passed / 0 failed of 5
+  Returns  : 17 passed / 0 failed
+
+  Kafka topics exercised:
+    • wallet-deposits  (POST /receive)
+    • wallet-credits   (POST /transfer)
+    • wallet-returns   (GET  /return)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 

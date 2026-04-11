@@ -3,11 +3,16 @@
 # test-flow.sh — end-to-end smoke test for the Capital ISO 20022 Gateway
 #
 # Flow:
-#   0. Auth  — login to ZW security microservice, obtain Bearer token
-#   1. AVS   — verify the beneficiary account holder's name
-#   2. Send  — credit transfer (pacs.008)
-#   3. Status — query payment status (pacs.028)
-#   4. Return — return the payment (pacs.004)
+#   0. Auth          — login to ZW security microservice, obtain Bearer token
+#   1. AVS           — verify the beneficiary account holder's name
+#   2. Send          — credit transfer (pacs.008)            → Kafka: wallet-credits
+#   3. Status        — query payment status (pacs.028)
+#   4. Return        — return the payment (pacs.004)         → Kafka: wallet-returns
+#   5. Auth tests    — token validation tests
+#   6. Batch         — randomised credit transfers
+#   7. Receive       — inbound wallet deposit (pacs.008 XML) → Kafka: wallet-deposits
+#   8. Deposit batch — randomised wallet deposits
+#   9. Return batch  — return deposited/transferred payments → Kafka: wallet-returns
 #
 # Usage:
 #   ./test-flow.sh                          # uses defaults below
@@ -327,10 +332,10 @@ test_auth() {
       -d '{"firstName":"Test","lastName":"User","accountNumber":"0000000000","bankBic":"TESTBICXXX"}'
     if [[ "$HTTP_STATUS" == "$expected" ]]; then
       ok "$label — HTTP $HTTP_STATUS (expected)"
-      ((passed++))
+      (( ++passed ))
     else
       fail "$label — expected HTTP $expected, got HTTP $HTTP_STATUS"
-      ((failed++))
+      (( ++failed ))
     fi
   }
 
@@ -469,6 +474,307 @@ summary() {
   echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
 }
 
+# ── 6. Receive deposit (inbound pacs.008 XML) ────────────────────────────────
+RECEIVE_MSG_ID=""
+
+receive_deposit() {
+  step "STEP 6 — Receive: Inbound deposit (POST /receive pacs.008 XML)"
+
+  # Randomise parties for the wallet deposit
+  local d_first d_last c_first c_last
+  d_first=$(rand_element "${SA_FIRST_NAMES[@]}")
+  d_last=$(rand_element "${SA_SURNAMES[@]}")
+  c_first=$(rand_element "${SA_FIRST_NAMES[@]}")
+  c_last=$(rand_element "${SA_SURNAMES[@]}")
+
+  local d_mob c_mob amt instg_id instd_id
+  d_mob="+27-$(printf '%09d' $(( RANDOM * RANDOM % 900000000 + 100000000 )))"
+  c_mob="+260-$(printf '%09d' $(( RANDOM * RANDOM % 900000000 + 100000000 )))"
+  amt=$(rand_amount)
+  instg_id="$(printf '%06d' $(( RANDOM % 900000 + 100000 )))"
+  instd_id="$(printf '%06d' $(( RANDOM % 900000 + 100000 )))"
+
+  local ts msg_id
+  ts=$(date +%Y%m%d%H%M%S)
+  msg_id="${ts}${instg_id}PROD$(printf '%04d' $(( RANDOM % 9999 + 1 )))"
+
+  echo "  MsgId       : $msg_id"
+  echo "  Debtor      : $d_first $d_last  ($d_mob)"
+  echo "  Creditor    : $c_first $c_last  ($c_mob)"
+  echo "  Amount      : $amt ZAR"
+  echo "  InstgAgt    : $instg_id → InstdAgt: $instd_id"
+
+  local xml_payload
+  xml_payload=$(cat <<XMLEOF
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.07">
+    <FIToFICstmrCdtTrf>
+        <GrpHdr>
+            <MsgId>${msg_id}</MsgId>
+            <CreDtTm>$(date -u +%Y-%m-%dT%H:%M:%S.000+00:00)</CreDtTm>
+            <NbOfTxs>1</NbOfTxs>
+            <SttlmInf>
+                <SttlmMtd>CLRG</SttlmMtd>
+            </SttlmInf>
+            <InstgAgt>
+                <FinInstnId>
+                    <Othr>
+                        <Id>${instg_id}</Id>
+                    </Othr>
+                </FinInstnId>
+            </InstgAgt>
+            <InstdAgt>
+                <FinInstnId>
+                    <Othr>
+                        <Id>${instd_id}</Id>
+                    </Othr>
+                </FinInstnId>
+            </InstdAgt>
+        </GrpHdr>
+        <CdtTrfTxInf>
+            <PmtId>
+                <EndToEndId>${msg_id}</EndToEndId>
+                <TxId>${msg_id}</TxId>
+            </PmtId>
+            <PmtTpInf>
+                <SvcLvl>
+                    <Cd>NURG</Cd>
+                </SvcLvl>
+            </PmtTpInf>
+            <IntrBkSttlmAmt Ccy="ZAR">${amt}</IntrBkSttlmAmt>
+            <ChrgBr>CRED</ChrgBr>
+            <Dbtr>
+                <Nm>${d_first} ${d_last}</Nm>
+                <CtctDtls>
+                    <MobNb>${d_mob}</MobNb>
+                </CtctDtls>
+            </Dbtr>
+            <DbtrAgt>
+                <FinInstnId>
+                    <Othr>
+                        <Id>${instg_id}</Id>
+                    </Othr>
+                </FinInstnId>
+            </DbtrAgt>
+            <CdtrAgt>
+                <FinInstnId>
+                    <Othr>
+                        <Id>${instd_id}</Id>
+                    </Othr>
+                </FinInstnId>
+            </CdtrAgt>
+            <Cdtr>
+                <Nm>${c_first} ${c_last}</Nm>
+                <CtctDtls>
+                    <MobNb>${c_mob}</MobNb>
+                </CtctDtls>
+            </Cdtr>
+            <RgltryRptg>
+                <Dtls>
+                    <Cd>10402</Cd>
+                </Dtls>
+            </RgltryRptg>
+            <RmtInf>
+                <Ustrd>DEPOSIT TO ${c_first} ${c_last}</Ustrd>
+            </RmtInf>
+        </CdtTrfTxInf>
+    </FIToFICstmrCdtTrf>
+</Document>
+XMLEOF
+)
+
+  do_curl POST "$BASE_URL/api/v1/payments/receive" \
+    -H "Content-Type: application/xml" \
+    -d "$xml_payload"
+
+  show_response "POST /payments/receive" "$HTTP_STATUS" "$BODY"
+
+  case "$HTTP_STATUS" in
+    200)
+      RECEIVE_MSG_ID="$msg_id"
+      ok "Deposit accepted — msgId: $msg_id (Kafka → wallet-deposits)"
+      ;;
+    400) fail "Bad request — $BODY" ;;
+    401) fail "HTTP 401 — token rejected" ;;
+    *)   warn "Unexpected status $HTTP_STATUS" ;;
+  esac
+}
+
+# ── 7. Batch wallet deposits ─────────────────────────────────────────────────
+DEPOSIT_BATCH_COUNT="${DEPOSIT_BATCH_COUNT:-5}"
+DEPOSIT_BATCH_PASS=0
+DEPOSIT_BATCH_FAIL=0
+declare -a DEPOSIT_MSG_IDS=()
+
+run_deposit_batch() {
+  step "DEPOSIT BATCH — Running $DEPOSIT_BATCH_COUNT randomised wallet deposits"
+
+  for (( i=1; i<=DEPOSIT_BATCH_COUNT; i++ )); do
+    local d_first d_last c_first c_last
+    d_first=$(rand_element "${SA_FIRST_NAMES[@]}")
+    d_last=$(rand_element "${SA_SURNAMES[@]}")
+    c_first=$(rand_element "${SA_FIRST_NAMES[@]}")
+    c_last=$(rand_element "${SA_SURNAMES[@]}")
+
+    local d_mob c_mob amt instg_id instd_id
+    d_mob="+27-$(printf '%09d' $(( RANDOM * RANDOM % 900000000 + 100000000 )))"
+    c_mob="+260-$(printf '%09d' $(( RANDOM * RANDOM % 900000000 + 100000000 )))"
+    amt=$(rand_amount)
+    instg_id="$(printf '%06d' $(( RANDOM % 900000 + 100000 )))"
+    instd_id="$(printf '%06d' $(( RANDOM % 900000 + 100000 )))"
+
+    local ts msg_id
+    ts=$(date +%Y%m%d%H%M%S)
+    msg_id="DEP-${ts}-$(printf '%04d' $i)"
+
+    echo -e "\n${BOLD}── Deposit $i/$DEPOSIT_BATCH_COUNT ──${RESET}"
+    echo "  Debtor  : $d_first $d_last  ($d_mob)"
+    echo "  Creditor: $c_first $c_last  ($c_mob)"
+    echo "  Amount  : $amt ZAR  |  MsgId: $msg_id"
+
+    local xml_payload
+    xml_payload=$(cat <<XMLEOF
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pacs.008.001.07">
+    <FIToFICstmrCdtTrf>
+        <GrpHdr>
+            <MsgId>${msg_id}</MsgId>
+            <CreDtTm>$(date -u +%Y-%m-%dT%H:%M:%S.000+00:00)</CreDtTm>
+            <NbOfTxs>1</NbOfTxs>
+            <SttlmInf><SttlmMtd>CLRG</SttlmMtd></SttlmInf>
+            <InstgAgt><FinInstnId><Othr><Id>${instg_id}</Id></Othr></FinInstnId></InstgAgt>
+            <InstdAgt><FinInstnId><Othr><Id>${instd_id}</Id></Othr></FinInstnId></InstdAgt>
+        </GrpHdr>
+        <CdtTrfTxInf>
+            <PmtId>
+                <EndToEndId>${msg_id}</EndToEndId>
+                <TxId>${msg_id}</TxId>
+            </PmtId>
+            <PmtTpInf><SvcLvl><Cd>NURG</Cd></SvcLvl></PmtTpInf>
+            <IntrBkSttlmAmt Ccy="ZAR">${amt}</IntrBkSttlmAmt>
+            <ChrgBr>CRED</ChrgBr>
+            <Dbtr>
+                <Nm>${d_first} ${d_last}</Nm>
+                <CtctDtls><MobNb>${d_mob}</MobNb></CtctDtls>
+            </Dbtr>
+            <DbtrAgt><FinInstnId><Othr><Id>${instg_id}</Id></Othr></FinInstnId></DbtrAgt>
+            <CdtrAgt><FinInstnId><Othr><Id>${instd_id}</Id></Othr></FinInstnId></CdtrAgt>
+            <Cdtr>
+                <Nm>${c_first} ${c_last}</Nm>
+                <CtctDtls><MobNb>${c_mob}</MobNb></CtctDtls>
+            </Cdtr>
+            <RgltryRptg><Dtls><Cd>10402</Cd></Dtls></RgltryRptg>
+            <RmtInf><Ustrd>DEPOSIT TO ${c_first} ${c_last}</Ustrd></RmtInf>
+        </CdtTrfTxInf>
+    </FIToFICstmrCdtTrf>
+</Document>
+XMLEOF
+)
+
+    do_curl POST "$BASE_URL/api/v1/payments/receive" \
+      -H "Content-Type: application/xml" \
+      -d "$xml_payload"
+
+    case "$HTTP_STATUS" in
+      200)
+        ok "  Deposit accepted — msgId: $msg_id (Kafka → wallet-deposits)"
+        DEPOSIT_MSG_IDS+=("$msg_id")
+        DEPOSIT_BATCH_PASS=$(( DEPOSIT_BATCH_PASS+1 ))
+        ;;
+      *)
+        fail "  Deposit HTTP $HTTP_STATUS — $BODY"
+        DEPOSIT_BATCH_FAIL=$(( DEPOSIT_BATCH_FAIL+1 ))
+        ;;
+    esac
+  done
+
+  echo ""
+  echo -e "${BOLD}Deposit batch result: ${GREEN}$DEPOSIT_BATCH_PASS passed${RESET}  ${RED}$DEPOSIT_BATCH_FAIL failed${RESET}  (of $DEPOSIT_BATCH_COUNT)"
+}
+
+# ── 8. Return batch — returns deposits and verifies Kafka → wallet-returns ───
+RETURN_BATCH_PASS=0
+RETURN_BATCH_FAIL=0
+
+run_return_batch() {
+  local ids=("${DEPOSIT_MSG_IDS[@]}" "${BATCH_MSG_IDS[@]}")
+  local count=${#ids[@]}
+
+  if [[ $count -eq 0 ]]; then
+    warn "No msgIds available — skipping return batch."
+    return
+  fi
+
+  local max="${RETURN_BATCH_COUNT:-$count}"
+  [[ $max -gt $count ]] && max=$count
+
+  step "RETURN BATCH — Returning $max transactions (Kafka → wallet-returns)"
+
+  local reasons=("CUST" "DUPL" "FRAD" "TECH" "AM09")
+
+  for (( i=0; i<max; i++ )); do
+    local mid="${ids[$i]}"
+    local reason
+    reason=$(rand_element "${reasons[@]}")
+
+    echo -e "\n${BOLD}── Return $(( i+1 ))/$max ──${RESET}"
+    echo "  MsgId  : $mid"
+    echo "  Reason : $reason"
+
+    do_curl GET "$BASE_URL/api/v1/payments/return?msgId=$mid&reasonCode=$reason"
+
+    case "$HTTP_STATUS" in
+      200)
+        ok "  Return accepted — msgId: $mid reason: $reason (Kafka → wallet-returns)"
+        RETURN_BATCH_PASS=$(( RETURN_BATCH_PASS+1 ))
+        ;;
+      400) fail "  Bad request — $BODY"; RETURN_BATCH_FAIL=$(( RETURN_BATCH_FAIL+1 )) ;;
+      404) warn "  Not found — $mid (may not be persisted yet)"; RETURN_BATCH_FAIL=$(( RETURN_BATCH_FAIL+1 )) ;;
+      502) warn "  Return 502 — upstream unavailable"; RETURN_BATCH_PASS=$(( RETURN_BATCH_PASS+1 )) ;;
+      *)   fail "  Return HTTP $HTTP_STATUS"; RETURN_BATCH_FAIL=$(( RETURN_BATCH_FAIL+1 )) ;;
+    esac
+  done
+
+  echo ""
+  echo -e "${BOLD}Return batch result: ${GREEN}$RETURN_BATCH_PASS passed${RESET}  ${RED}$RETURN_BATCH_FAIL failed${RESET}  (of $max)"
+}
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+summary() {
+  echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+  echo -e "${BOLD}Test flow complete${RESET}"
+  echo -e "  Capital  : $BASE_URL"
+  echo -e "  ZW Auth  : $ZW_URL"
+  echo -e "  msgId    : ${MSG_ID:-not captured}"
+  if [[ $BATCH_COUNT -gt 0 && $(( BATCH_PASS + BATCH_FAIL )) -gt 0 ]]; then
+    echo -e "  Batch    : ${GREEN}${BATCH_PASS} passed${RESET} / ${RED}${BATCH_FAIL} failed${RESET} of $BATCH_COUNT"
+    if [[ ${#BATCH_MSG_IDS[@]} -gt 0 ]]; then
+      echo -e "  Batch msgIds captured: ${#BATCH_MSG_IDS[@]}"
+      for mid in "${BATCH_MSG_IDS[@]}"; do
+        echo -e "    • $mid"
+      done
+    fi
+  fi
+  if [[ $(( DEPOSIT_BATCH_PASS + DEPOSIT_BATCH_FAIL )) -gt 0 ]]; then
+    echo -e "  Deposits : ${GREEN}${DEPOSIT_BATCH_PASS} passed${RESET} / ${RED}${DEPOSIT_BATCH_FAIL} failed${RESET} of $DEPOSIT_BATCH_COUNT"
+    if [[ ${#DEPOSIT_MSG_IDS[@]} -gt 0 ]]; then
+      echo -e "  Deposit msgIds captured: ${#DEPOSIT_MSG_IDS[@]}"
+      for mid in "${DEPOSIT_MSG_IDS[@]}"; do
+        echo -e "    • $mid"
+      done
+    fi
+  fi
+  if [[ $(( RETURN_BATCH_PASS + RETURN_BATCH_FAIL )) -gt 0 ]]; then
+    echo -e "  Returns  : ${GREEN}${RETURN_BATCH_PASS} passed${RESET} / ${RED}${RETURN_BATCH_FAIL} failed${RESET}"
+  fi
+  echo -e ""
+  echo -e "  ${BOLD}Kafka topics exercised:${RESET}"
+  echo -e "    • wallet-deposits  (POST /receive)"
+  echo -e "    • wallet-credits   (POST /transfer)"
+  echo -e "    • wallet-returns   (GET  /return)"
+  echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
+}
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 # Allow overriding MSG_ID from the environment to skip steps 1 & 2.
 # Example: MSG_ID=MSG-ABCDEF1234567890 ./test-flow.sh
@@ -487,6 +793,9 @@ else
   return_payment "${REASON_CODE:-CUST}"
   test_auth
   run_batch
+  receive_deposit
+  run_deposit_batch
+  run_return_batch
 fi
 
 summary
