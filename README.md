@@ -1,5 +1,7 @@
 # Capital ISO 20022 Gateway
 
+![SWIFT Gateway](images/SWIFT%20Gateway.png)
+
 A Spring Boot gateway that accepts JSON over REST and translates it into ISO 20022 SWIFT XML messages. Outbound messages are marshalled from generated JAXB classes, forwarded to the destination institution, and every interaction is persisted to a database for audit and reconciliation.
 
 ---
