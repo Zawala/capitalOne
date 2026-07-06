@@ -5,6 +5,7 @@ import capital.one.capital.dto.TransferRequestDTO;
 import capital.one.capital.model.TransferLog;
 import capital.one.capital.model.TransferStatus;
 import capital.one.capital.repository.TransferLogRepository;
+import capital.one.capital.service.IdempotencyService;
 import capital.one.capital.service.Iso20022MarshallingService;
 import capital.one.capital.service.Pacs008BuilderService;
 import capital.one.capital.service.Pacs008BuilderService.BuildResult;
@@ -12,6 +13,7 @@ import capital.one.capital.service.PaymentKafkaProducer;
 import capital.one.capital.service.WalletPaymentEvent;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -25,6 +27,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientException;
@@ -53,6 +56,7 @@ public class PaymentController {
     private final InstitutionProperties institution;
     private final RestTemplate restTemplate;
     private final PaymentKafkaProducer kafkaProducer;
+    private final IdempotencyService idempotencyService;
 
     public PaymentController(
             Pacs008BuilderService pacs008Builder,
@@ -60,13 +64,15 @@ public class PaymentController {
             TransferLogRepository transferLogRepository,
             InstitutionProperties institution,
             RestTemplate restTemplate,
-            PaymentKafkaProducer kafkaProducer) {
+            PaymentKafkaProducer kafkaProducer,
+            IdempotencyService idempotencyService) {
         this.pacs008Builder = pacs008Builder;
         this.marshaller = marshaller;
         this.transferLogRepository = transferLogRepository;
         this.institution = institution;
         this.restTemplate = restTemplate;
         this.kafkaProducer = kafkaProducer;
+        this.idempotencyService = idempotencyService;
     }
 
     /**
@@ -144,31 +150,43 @@ public class PaymentController {
                     .body("Invalid pacs.008 payload: " + e.getMessage());
         }
 
-        // ── 2. Persist as RECEIVED deposit ───────────────────────────────────
-        TransferLog transferLog = new TransferLog();
-        transferLog.setMessageId(messageId);
-        transferLog.setEndToEndId(endToEndId);
-        transferLog.setDebtorName(debtorName);
-        transferLog.setDebtorAccount(debtorAccount);
-        transferLog.setCreditorName(creditorName);
-        transferLog.setCreditorAccount(creditorAccount);
-        transferLog.setAmount(amount);
-        transferLog.setCurrency(currency);
-        transferLog.setStatus(TransferStatus.RECEIVED);
-        transferLog.setRawXmlSent(rawXml);
-        transferLogRepository.save(transferLog);
+        // ── 2. Persist + publish under the idempotency guard, keyed on MsgId ──
+        //    A duplicate delivery (same MsgId + same XML) replays the original
+        //    response without a second save or Kafka publish; a reused MsgId
+        //    carrying a different payload is rejected 409.
+        final String msgId = messageId;
+        final String e2eId = endToEndId;
+        final String dbtrName = debtorName, dbtrAcct = debtorAccount;
+        final String cdtrName = creditorName, cdtrAcct = creditorAccount;
+        final BigDecimal amt = amount;
+        final String ccy = currency;
+        final String sndrInst = senderInstitution, rcvrInst = receiverInstitution;
 
-        log.info("Deposit RECEIVED — msgId={} endToEndId={} creditor={} amount={} {}",
-                messageId, endToEndId, creditorName, amount, currency);
+        return idempotencyService.execute("payments.receive", msgId, rawXml, () -> {
+            TransferLog transferLog = new TransferLog();
+            transferLog.setMessageId(msgId);
+            transferLog.setEndToEndId(e2eId);
+            transferLog.setDebtorName(dbtrName);
+            transferLog.setDebtorAccount(dbtrAcct);
+            transferLog.setCreditorName(cdtrName);
+            transferLog.setCreditorAccount(cdtrAcct);
+            transferLog.setAmount(amt);
+            transferLog.setCurrency(ccy);
+            transferLog.setStatus(TransferStatus.RECEIVED);
+            transferLog.setRawXmlSent(rawXml);
+            transferLogRepository.save(transferLog);
 
-        // ── 3. Publish to Kafka ───────────────────────────────────────────────
-        kafkaProducer.publishDeposit(new WalletPaymentEvent(
-                messageId,
-                senderInstitution, debtorName, debtorAccount,
-                amount, currency,
-                receiverInstitution, creditorName, creditorAccount));
+            log.info("Deposit RECEIVED — msgId={} endToEndId={} creditor={} amount={} {}",
+                    msgId, e2eId, cdtrName, amt, ccy);
 
-        return ResponseEntity.ok("Deposit accepted: " + messageId);
+            kafkaProducer.publishDeposit(new WalletPaymentEvent(
+                    msgId,
+                    sndrInst, dbtrName, dbtrAcct,
+                    amt, ccy,
+                    rcvrInst, cdtrName, cdtrAcct));
+
+            return ResponseEntity.ok("Deposit accepted: " + msgId);
+        });
     }
 
     // ── XPath helpers ─────────────────────────────────────────────────────────
@@ -194,11 +212,31 @@ public class PaymentController {
     @Operation(summary = "Initiate credit transfer",
                description = "Builds a pacs.008 credit transfer, persists a log, sends XML to the creditor agent, and publishes to Kafka.")
     @ApiResponse(responseCode = "200", description = "Transfer sent successfully")
-    @ApiResponse(responseCode = "400", description = "Invalid request — validation failed")
+    @ApiResponse(responseCode = "400", description = "Invalid request — validation failed, or missing Idempotency-Key header")
+    @ApiResponse(responseCode = "409", description = "Idempotency key reused with a different payload, or a request with it is already in progress")
     @ApiResponse(responseCode = "500", description = "Failed to build or marshal the pacs.008 message")
     @ApiResponse(responseCode = "502", description = "Creditor agent endpoint unreachable or returned an error")
     @PostMapping("/transfer")
-    public ResponseEntity<String> transfer(@Valid @RequestBody TransferRequestDTO request) {
+    public ResponseEntity<String> transfer(
+            @Valid @RequestBody TransferRequestDTO request,
+            @Parameter(description = "Client-supplied idempotency key; safe to retry with the same value")
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+
+        // The MsgId is generated server-side per call, so outbound idempotency relies on a
+        // client-supplied key. Fingerprint the business fields so a retry with the same key
+        // but a different payment is rejected 409.
+        String fingerprint = String.join("|",
+                request.getDebtorAccountNumber(),
+                request.getCreditorAccountNumber(),
+                request.getCreditorAgentBic(),
+                String.valueOf(request.getAmount()),
+                request.getCurrency());
+
+        return idempotencyService.execute("payments.transfer", idempotencyKey, fingerprint,
+                () -> doTransfer(request));
+    }
+
+    private ResponseEntity<String> doTransfer(TransferRequestDTO request) {
 
         // ── 1. Build pacs.008 ─────────────────────────────────────────────────
         BuildResult built;
